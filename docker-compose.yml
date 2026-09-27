@@ -28,6 +28,7 @@ x-base-environment: &base-environment
   AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID}
   AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET}
   AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER}
+  AUTHENTIK_DEFAULT_LOGIN: ${AUTHENTIK_DEFAULT_LOGIN:-true}
 
 services:
 
@@ -95,12 +96,38 @@ services:
       - -c
       - |
         echo "Waiting for PostgreSQL..."
+
         until pg_isready -h postgres -p 5432 -U "${POSTGRES_USER:-chatwoot}"; do
           sleep 2
         done
 
-        echo "Preparing Chatwoot database..."
-        bundle exec rails db:chatwoot_prepare
+        echo "Checking Chatwoot database..."
+
+        if bundle exec rails runner "exit ActiveRecord::Base.connection.table_exists?(:installation_configs) ? 0 : 1"; then
+
+          echo "Existing database detected."
+          echo "Running migrations..."
+
+          bundle exec rails db:migrate
+
+        else
+
+          echo "Fresh database detected."
+          echo "Loading schema..."
+
+          DISABLE_DATABASE_ENVIRONMENT_CHECK=1 bundle exec rails db:schema:load
+
+          echo "Running migrations..."
+
+          bundle exec rails db:migrate
+
+          echo "Loading seeds..."
+
+          bundle exec rails db:seed
+
+        fi
+
+        echo "Database ready."
 
 
   rails:
