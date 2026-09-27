@@ -1,0 +1,123 @@
+name: chatwoot
+
+x-base-environment: &base-environment
+  NODE_ENV: production
+  RAILS_ENV: production
+  INSTALLATION_ENV: docker
+
+  FRONTEND_URL: ${FRONTEND_URL}
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_DATABASE: ${POSTGRES_DB:-chatwoot}
+  POSTGRES_USERNAME: ${POSTGRES_USER:-chatwoot}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+  AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID}
+  AUTHENTIK_CLIENT_SECRET: ${AUTHENTIK_CLIENT_SECRET}
+  AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER}
+
+services:
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: chatwoot-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-chatwoot}
+      POSTGRES_USER: ${POSTGRES_USER:-chatwoot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - chatwoot_postgres:/var/lib/postgresql/data
+    networks:
+      - internal
+
+  redis:
+    image: redis:alpine
+    container_name: chatwoot-redis
+    restart: always
+    command:
+      - sh
+      - -c
+      - redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - chatwoot_redis:/data
+    networks:
+      - internal
+
+  rails:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: chatwoot-authentik:4.18.0
+    container_name: chatwoot-rails
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      <<: *base-environment
+    volumes:
+      - chatwoot_storage:/app/storage
+    networks:
+      - internal
+      - proxy
+    expose:
+      - "3000"
+    entrypoint: docker/entrypoints/rails.sh
+    command:
+      - bundle
+      - exec
+      - rails
+      - s
+      - -p
+      - "3000"
+      - -b
+      - 0.0.0.0
+
+  sidekiq:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: chatwoot-authentik:4.18.0
+    container_name: chatwoot-sidekiq
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+    environment:
+      <<: *base-environment
+    volumes:
+      - chatwoot_storage:/app/storage
+    networks:
+      - internal
+    command:
+      - bundle
+      - exec
+      - sidekiq
+      - -C
+      - config/sidekiq.yml
+
+volumes:
+  chatwoot_postgres:
+    name: chatwoot_postgres
+
+  chatwoot_redis:
+    name: chatwoot_redis
+
+  chatwoot_storage:
+    name: chatwoot_storage
+
+networks:
+  internal:
+    name: chatwoot_internal
+    internal: true
+
+  proxy:
+    external: true
