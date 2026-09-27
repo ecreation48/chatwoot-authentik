@@ -70,6 +70,39 @@ services:
       - internal
 
 
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: chatwoot-migrate
+    restart: "no"
+    logging: *logging
+
+    depends_on:
+      - postgres
+      - redis
+
+    environment:
+      <<: *base-environment
+
+    networks:
+      - internal
+
+    entrypoint: /bin/sh
+
+    command:
+      - -c
+      - |
+        echo "Waiting for PostgreSQL..."
+        until pg_isready -h postgres -p 5432 -U "${POSTGRES_USER:-chatwoot}"; do
+          sleep 2
+        done
+
+        echo "Preparing Chatwoot database..."
+        bundle exec rails db:chatwoot_prepare
+
+
   rails:
     build:
       context: .
@@ -80,8 +113,8 @@ services:
     logging: *logging
 
     depends_on:
-      - postgres
-      - redis
+      migrate:
+        condition: service_completed_successfully
 
     environment:
       <<: *base-environment
@@ -119,8 +152,8 @@ services:
     logging: *logging
 
     depends_on:
-      - postgres
-      - redis
+      migrate:
+        condition: service_completed_successfully
 
     environment:
       <<: *base-environment
